@@ -1,0 +1,17 @@
+# Build outputs
+bin/
+obj/
+publish*/
+artifacts/
+# Personal device selection and diagnostics
+config.json
+config.json.*.tmp
+config.json.*.bak
+*.log
+# IDE and user settings
+.vs/
+*.user
+*.suo
+# ADB identities must stay local
+adbkey*
+.android/

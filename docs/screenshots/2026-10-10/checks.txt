@@ -1,0 +1,2 @@
+PASS: PhonePilot-Identität, eingebettete Fenster-/Dialog-/Infobereich-Symbole, vier Tabs, globale Einstellungen, Hell/Dunkel, 960×680, Zustandsaktionen und Eingabevalidierung.
+Offline-Rendering mit Beispieldaten; kein Hardwaretest.
