@@ -9,6 +9,8 @@ public interface IScrcpySession : IAsyncDisposable
     Task WaitUntilReadyAsync(CancellationToken token);
     Task StopAsync();
     bool ShowWindow();
+    bool HasWindow { get; }
+    Task SetDisplayPowerAsync(bool on, CancellationToken token);
 }
 public interface IScrcpySessionFactory
 {
@@ -30,6 +32,8 @@ public sealed class ScrcpySessionFactory(ToolPaths paths, ProcessRunner runner, 
         private string? _lastError;
         private int _disposeRequested;
         private bool _disposed;
+        private readonly object _displaySync = new();
+        private TaskCompletionSource<bool>? _displayReply;
         public Task<int> Completion { get; }
 
         public ScrcpyProcess(ProcessStartInfo info, LogStore logs, string serial)
@@ -45,6 +49,12 @@ public sealed class ScrcpySessionFactory(ToolPaths paths, ProcessRunner runner, 
                 string level = line.Contains("ERROR:", StringComparison.OrdinalIgnoreCase) ? "ERROR" : line.Contains("WARN:", StringComparison.OrdinalIgnoreCase) ? "WARN" : "INFO";
                 if (level == "ERROR") _lastError = line;
                 _logs.Write("scrcpy", line, _serial, level);
+                if (line.Contains("Device display turned ", StringComparison.Ordinal))
+                {
+                    bool? on = line.Contains("Device display turned on", StringComparison.Ordinal) ? true :
+                        line.Contains("Device display turned off", StringComparison.Ordinal) ? false : null;
+                    if (on.HasValue) lock (_displaySync) _displayReply?.TrySetResult(on.Value);
+                }
                 // scrcpy 4.1 emits the texture size when the video renderer is ready.
                 if (line.Contains("Texture:", StringComparison.OrdinalIgnoreCase)) _ready.TrySetResult();
             }
@@ -101,6 +111,42 @@ public sealed class ScrcpySessionFactory(ToolPaths paths, ProcessRunner runner, 
                 return SetForegroundWindow(handle);
             }
             finally { _stop.Release(); }
+        }
+        public bool HasWindow
+        {
+            get
+            {
+                if (!_stop.Wait(0)) return false;
+                try { return WindowHandle() != IntPtr.Zero; }
+                finally { _stop.Release(); }
+            }
+        }
+        private IntPtr WindowHandle()
+        {
+            if (_disposed || _process.HasExited) return IntPtr.Zero;
+            _process.Refresh();
+            var handle = _process.MainWindowHandle;
+            return ScrcpyWindow.IsWindow(handle) ? handle : IntPtr.Zero;
+        }
+        public async Task SetDisplayPowerAsync(bool on, CancellationToken token)
+        {
+            await _stop.WaitAsync(token);
+            var reply = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+            try
+            {
+                token.ThrowIfCancellationRequested();
+                lock (_displaySync) _displayReply = reply;
+                ScrcpyWindow.SetDisplayPower(WindowHandle(), on);
+                var completed = await Task.WhenAny(reply.Task, Completion).WaitAsync(TimeSpan.FromSeconds(4), token);
+                if (completed == Completion || await reply.Task != on)
+                    throw new IOException("scrcpy hat die Displayaktion nicht bestätigt. Bitte erneut versuchen.");
+            }
+            catch (TimeoutException) { throw new IOException("scrcpy hat die Displayaktion nicht bestätigt. Bitte erneut versuchen."); }
+            finally
+            {
+                lock (_displaySync) _displayReply = null;
+                _stop.Release();
+            }
         }
         public async ValueTask DisposeAsync()
         {

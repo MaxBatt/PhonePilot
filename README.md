@@ -94,6 +94,10 @@ Die Statusanzeigen unterscheiden:
 
 Ein Gerät kann also verbunden sein, obwohl kein scrcpy-Fenster läuft.
 
+Ein Doppelklick auf einen Geräteeintrag startet seine scrcpy-Sitzung. Per Rechtsklick stehen **Starten**, **Beenden** und **Gerät vergessen** zur Verfügung. Das Menü bezieht sich auf das angeklickte Gerät; beim Vergessen erscheint dieselbe Bestätigung wie beim vorhandenen Button. **Fenster anzeigen** erscheint nur, wenn das eigene scrcpy-Fenster existiert, auch wenn es minimiert ist.
+
+Während einer laufenden Sitzung bietet das Menü außerdem **Handy-Display einschalten** beziehungsweise **Handy-Display ausschalten**. Die Spiegelung läuft weiter. Der tatsächliche Displayzustand wird beim Öffnen und während das Menü geöffnet ist abgefragt; nach dem Schalten wird das Ergebnis geprüft. Kann das Gerät seinen physischen Displayzustand nicht eindeutig melden, bleibt die Aktion mit **Displaystatus nicht verfügbar** ausgegraut. Die gespeicherte Startoption wird durch diese Aktion nicht geändert.
+
 ### Die wichtigsten Aktionen
 
 | Aktion | Wirkung |

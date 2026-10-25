@@ -104,6 +104,7 @@ public sealed class DeviceManagerTests
         public Task<AdbTransport> ConnectAsync(string serial, string? endpoint, CancellationToken token)
         { Interlocked.Increment(ref Connections); return Connection?.Invoke(serial, token) ?? Task.FromResult(new AdbTransport("192.168.1.2:12345", "device", ConnectedSerial ?? serial)); }
         public Task DisconnectAsync(string transport, CancellationToken token) => Task.CompletedTask;
+        public Task<DisplayPower> ReadDisplayPowerAsync(string serial, string transport, CancellationToken token) => Task.FromResult(DisplayPower.Off);
     }
     private sealed class FakeFactory : IScrcpySessionFactory
     {
@@ -122,6 +123,8 @@ public sealed class DeviceManagerTests
         public void Exit(int code) => _done.TrySetResult(code);
         public Task StopAsync() { if (_done.TrySetResult(0)) Interlocked.Increment(ref Stops); return Task.CompletedTask; }
         public bool ShowWindow() => true;
+        public bool HasWindow => !Completion.IsCompleted;
+        public Task SetDisplayPowerAsync(bool on, CancellationToken token) => Task.CompletedTask;
         public async ValueTask DisposeAsync() => await StopAsync();
     }
 

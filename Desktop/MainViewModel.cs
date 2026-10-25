@@ -84,9 +84,12 @@ public sealed class MainViewModel : Observable
         logs.Added += OnLog;
         RefreshCommand = Command(() => manager.RefreshAsync(_lifetime.Token), () => ToolsAvailable);
         ConnectCommand = Command(() => manager.ConnectAsync(SelectedDevice!.Serial, _lifetime.Token), () => CanChange && SelectedDevice!.State.Adb != AdbState.Connected);
-        StartCommand = Command(() => manager.StartAsync(SelectedDevice!.Serial, _lifetime.Token), () => CanChange && SelectedDevice!.State.Session is SessionState.Stopped or SessionState.Failed && Manager.ActiveCount < 4);
-        StopCommand = Command(() => manager.StopAsync(SelectedDevice!.Serial), () => SelectedDevice is not null && (SelectedDevice.State.Session is SessionState.Starting or SessionState.Running || SelectedDevice.State.Busy));
-        ShowCommand = Command(() => { if (!manager.ShowWindow(SelectedDevice!.Serial)) Notice = "Das Sitzungsfenster konnte nicht aktiviert werden. Bitte das scrcpy-Fenster über die Taskleiste öffnen."; return Task.CompletedTask; }, () => SelectedDevice?.IsRunning == true);
+        StartCommand = new(p => manager.StartAsync(Target(p)!.Serial, _lifetime.Token),
+            p => ToolsAvailable && Target(p) is { State.Busy: false } device && device.State.Session is SessionState.Stopped or SessionState.Failed && Manager.ActiveCount < 4, Report);
+        StopCommand = new(p => manager.StopAsync(Target(p)!.Serial),
+            p => Target(p) is { } device && (device.State.Session is SessionState.Starting or SessionState.Running || device.State.Busy), Report);
+        ShowCommand = new(p => { if (!manager.ShowWindow(Target(p)!.Serial)) Notice = "Das Sitzungsfenster konnte nicht aktiviert werden. Bitte das scrcpy-Fenster über die Taskleiste öffnen."; return Task.CompletedTask; },
+            p => Target(p) is { } device && manager.HasWindow(device.Serial), Report);
         AllConnectCommand = Command(() => AllAsync("connect"), () => ToolsAvailable);
         AllStartCommand = Command(() => AllAsync("start"), () => ToolsAvailable && Manager.ActiveCount < 4);
         AllStopCommand = Command(() => AllAsync("stop"), () => Manager.ActiveCount > 0);
@@ -97,6 +100,7 @@ public sealed class MainViewModel : Observable
         if (loaded.Warning is not null) { Notice = loaded.Warning; SaveStatus = "Konfiguration geschützt – nicht gespeichert."; }
         if (loaded.IsLegacy) SaveStatus = "Bisherige Geräteauswahl wird mit Sicherung übernommen.";
     }
+    private DeviceViewModel? Target(object? parameter) => parameter is DeviceViewModel device ? Devices.FirstOrDefault(d => d.Serial == device.Serial) : SelectedDevice;
     private bool CanChange => ToolsAvailable && SelectedDevice is not null && !SelectedDevice.State.Busy;
     private AsyncCommand Command(Func<Task> action, Func<bool>? enabled = null) => new(action, enabled, Report);
     public void Report(Exception error) { Notice = error.Message; LogStore.Write("Anwendung", error.Message, SelectedDevice?.Serial, "ERROR"); }

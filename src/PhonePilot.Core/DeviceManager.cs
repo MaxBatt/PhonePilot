@@ -288,6 +288,62 @@ public sealed class DeviceManager : IAsyncDisposable
         ConfigurationChanged?.Invoke(); Changed?.Invoke();
     }
     public bool ShowWindow(string serial) { lock (_sync) return Get(serial).Process?.ShowWindow() == true; }
+    public bool HasWindow(string serial) { lock (_sync) return _devices.TryGetValue(serial, out var device) && device.Process?.HasWindow == true; }
+
+    public async Task<DisplayPower> ReadDisplayPowerAsync(string serial, CancellationToken token = default)
+    {
+        Runtime device; IScrcpySession process; string transport;
+        lock (_sync)
+        {
+            device = Get(serial);
+            if (_disposed || _maintenance || device.Busy || device.Session != SessionState.Running ||
+                device.Process is null || device.Adb != AdbState.Connected || device.Transport is null) return DisplayPower.Unknown;
+            process = device.Process; transport = device.Transport;
+        }
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, _shutdown.Token);
+        var state = await _adb.ReadDisplayPowerAsync(serial, transport, linked.Token);
+        linked.Token.ThrowIfCancellationRequested();
+        lock (_sync)
+        {
+            if (!_devices.TryGetValue(serial, out var current) || !ReferenceEquals(device, current) ||
+                !ReferenceEquals(device.Process, process) || process.Completion.IsCompleted || device.Stopping ||
+                device.Transport != transport || device.Adb != AdbState.Connected) return DisplayPower.Unknown;
+        }
+        return state;
+    }
+
+    public Task SetDisplayPowerAsync(string serial, bool on, CancellationToken token = default)
+        => InDeviceAsync(serial, async (device, ct) =>
+        {
+            IScrcpySession process; string transport;
+            lock (_sync)
+            {
+                if (device.Session != SessionState.Running || device.Process is null || device.Process.Completion.IsCompleted ||
+                    device.Adb != AdbState.Connected || device.Transport is null)
+                    throw new IOException("Für diese Displayaktion muss eine verbundene scrcpy-Sitzung laufen.");
+                process = device.Process; transport = device.Transport;
+            }
+            // Verify the current transport/identity before sending a window command.
+            var before = await _adb.ReadDisplayPowerAsync(serial, transport, ct);
+            ct.ThrowIfCancellationRequested();
+            if (before == DisplayPower.Unknown) throw new IOException("Der tatsächliche Displaystatus ist nicht verfügbar.");
+            lock (_sync)
+                if (!ReferenceEquals(device.Process, process) || device.Stopping || process.Completion.IsCompleted)
+                    throw new IOException("Die scrcpy-Sitzung wurde inzwischen beendet.");
+            // Explicit target state; do not invert a possibly stale menu state.
+            await process.SetDisplayPowerAsync(on, ct);
+            for (int attempt = 0; attempt < 4; attempt++)
+            {
+                await Task.Delay(150, ct);
+                var actual = await _adb.ReadDisplayPowerAsync(serial, transport, ct);
+                if (actual == (on ? DisplayPower.On : DisplayPower.Off))
+                {
+                    _logs.Write("scrcpy", on ? "Handy-Display eingeschaltet." : "Handy-Display ausgeschaltet.", serial);
+                    return;
+                }
+            }
+            throw new IOException("Die Displayaktion wurde gesendet, der neue Displaystatus konnte aber nicht bestätigt werden.");
+        }, token);
     public async Task<IReadOnlyList<string>> AllAsync(string action, CancellationToken token = default)
     {
         string[] targets;

@@ -5,6 +5,7 @@ public interface IAdbClient
     Task<DiscoveryResult> DiscoverAsync(CancellationToken token);
     Task<AdbTransport> ConnectAsync(string serial, string? endpoint, CancellationToken token);
     Task DisconnectAsync(string transport, CancellationToken token);
+    Task<DisplayPower> ReadDisplayPowerAsync(string serial, string transport, CancellationToken token);
 }
 
 public sealed class AdbClient(ToolPaths paths, ProcessRunner runner, LogStore logs) : IAdbClient
@@ -14,6 +15,15 @@ public sealed class AdbClient(ToolPaths paths, ProcessRunner runner, LogStore lo
     private int _protoRead;
     private string? _discoverySignature;
     private Task<ProcessResult> Adb(CancellationToken token, params string[] args) => runner.RunAsync(paths.Adb, args, TimeSpan.FromSeconds(4), token);
+
+    public async Task<DisplayPower> ReadDisplayPowerAsync(string serial, string transport, CancellationToken token)
+    {
+        var identity = await ReadInformationAsync(transport, token);
+        if (identity.Serial != serial) throw new IOException("Die Gerätekennung stimmt nicht mehr überein.");
+        var result = await Adb(token, "-s", transport, "shell", "dumpsys", "SurfaceFlinger", "--displays");
+        if (!result.Success) throw new IOException("Der Displaystatus konnte nicht abgefragt werden. " + result.Text);
+        return DisplayPowerParser.Parse(result.Output);
+    }
 
     public async Task StartServerAsync(CancellationToken token)
     {

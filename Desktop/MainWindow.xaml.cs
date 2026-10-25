@@ -65,6 +65,28 @@ public partial class MainWindow : Window
         finally { _closing = false; _explicitExit = false; }
     }
     private async Task RunAsync(Func<Task> action) { try { await action(); } catch (OperationCanceledException) { } catch (Exception ex) { _model.Report(ex); } }
+    private void DeviceDoubleClick(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left || sender is not ListBoxItem { DataContext: DeviceViewModel device }) return;
+        _model.SelectedDevice = device;
+        if (!_model.StartCommand.CanExecute(null)) return;
+        e.Handled = true;
+        _model.StartCommand.Execute(null);
+    }
+    private void DeviceRightClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is ListBoxItem { DataContext: DeviceViewModel device } item)
+        { _model.SelectedDevice = device; item.Focus(); }
+    }
+    private void DeviceContextMenuOpening(object sender, ContextMenuEventArgs e)
+    {
+        if (sender is not ListBoxItem { DataContext: DeviceViewModel device } item) return;
+        e.Handled = true;
+        _model.SelectedDevice = device;
+        var menu = new DeviceContextMenu(_model, device, () => ForgetDeviceAsync(device)) { PlacementTarget = item };
+        item.ContextMenu = menu;
+        menu.IsOpen = true;
+    }
     private void SettingsClick(object sender, RoutedEventArgs e) => Dialogs.GeneralSettings(this, _model).ShowDialog();
     private async void AddClick(object sender, RoutedEventArgs e) => await RunAsync(() => Dialogs.AddDeviceAsync(this, _model));
     private void DismissNotice(object sender, RoutedEventArgs e) => _model.Notice = "";
@@ -84,9 +106,12 @@ public partial class MainWindow : Window
         if ((selected.State.Session is SessionState.Running or SessionState.Starting || selected.State.Busy) && MessageBox.Show(this, "Die eigene Sitzung wird beendet und die ADB-Verbindung getrennt. Fortfahren?", "Verbindung trennen", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
         await _model.Manager.DisconnectAsync(selected.Serial, _model.LifetimeToken);
     });
-    private async void ForgetClick(object sender, RoutedEventArgs e) => await RunAsync(async () =>
+    private async void ForgetClick(object sender, RoutedEventArgs e)
     {
-        var selected = _model.SelectedDevice; if (selected is null) return;
+        if (_model.SelectedDevice is { } device) await ForgetDeviceAsync(device);
+    }
+    private Task ForgetDeviceAsync(DeviceViewModel selected) => RunAsync(async () =>
+    {
         if (MessageBox.Show(this, "„" + selected.Name + "“ und seine gespeicherten Einstellungen entfernen? Eine eigene aktive Sitzung wird beendet. Die ADB-Kopplung bleibt bestehen; das Gerät kann erneut gefunden werden.", "Gerät vergessen", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
         await _model.Manager.ForgetAsync(selected.Serial, _model.LifetimeToken);
     });
